@@ -1,0 +1,15 @@
+q=reshape(E_t+MD*L*w_cur,1,[]);
+r=spdiags(q.',0,Nnodes_d*Nsources,Nnodes_d*Nsources);
+rr=mat2cell(r,Nnodes_d*ones(1,Nsources),Nnodes_d*ones(1,Nsources));
+rr=reshape(rr,1,[]);
+d1=mat2cell(repmat(Td,1,Nsources^2),Nnodes_d,Nnodes_d*ones(1,Nsources^2));
+d2=cellfun(@ctranspose,rr,'UniformOutput',false);
+d3=cellfun(@mtimes,d2,d1,'UniformOutput',false);
+d4=cellfun(@mtimes,d3,rr,'UniformOutput',false);
+%     d5=cell(1,Nsources^2);
+%     d5(:)={1};
+%     d6=cellfun(@mtimes,d4,d5,'UniformOutput',false);
+U=0;
+for k=1:Nsources^2
+    U=[d4{k}]+U;
+end;

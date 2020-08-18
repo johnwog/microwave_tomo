@@ -1,0 +1,346 @@
+clear all
+tic
+format long g
+%------------Parameters definition-------------%
+e0 = 8.854e-12; %vacuum permitivity,electric constant
+m0 = 4e-7*pi; %vacuum permeability,magnetic constant
+c0 = 3e8; %speed of light vacuum
+f = 1e9; %frequency
+w = 2*pi*f; %angular frequency
+l = c0/f; %wavelength
+k0 = w*sqrt(e0*m0); %vacuum wavenumber
+E0 = 1; %incriment wave amplitude
+
+%-----Different area dielectric properties-----%
+er0 = eye(3); %vacuum relative electric constant
+mr0 = eye(3); %vacuum relative magnetic constant
+mr0_inv = inv(mr0);
+
+%PML parmeters
+a = 4; %PML a parameter real part
+b = 5.5; %PML a parameter imaginary part
+
+%vertical PML layer
+erx = [1/(a-b*1i) 0 0;0 a-b*1i 0;0 0 a-b*1i];%electic constant tensor
+mrx = erx;%megnetic constant tensor
+mrx_inv = inv(mrx);
+
+%horizontal PML layer
+ery = [a-b*1i 0 0;0 1/(a-b*1i) 0;0 0 a-b*1i];%electic constant tensor
+mry = ery;%megnetic constant tensor
+mry_inv = inv(mry);
+
+%PML intersection
+er_inter = erx*ery;
+mr_inter = mrx*mry;
+mr_inter_inv = inv(mr_inter);
+
+%scatterer
+er = 8; %relative electric constant
+s = 0.166; %scatterer conductivity
+ers = diag([er+s/(w*e0*1i) er+s/(w*e0*1i) er+s/(w*e0*1i)]);%electic constant tensor
+mrs = eye(3);%megnetic constant tensor
+mrs_inv = inv(mrs);
+% ks=w^2*sqrt(ers(1,1)*e0*mrs(1,1)*m0);
+
+%------------GEOMETRY DEFINITION--------------%
+%scatterer geometry parameters
+A = 0.1*l; %length 
+B = 0.1*l; %width
+dis = 0.3*l; %distance from PML
+
+%PML parmeters
+d = 0.15*l; %PML thickness
+length = l; %PML length
+
+%geometry matrix
+gd=[3 4 0 0+d 0+d 0 0 0 length length; %left vertical PML
+    3 4 0+length-d 0+length 0+length 0+length-d 0 0 length length; %right vertical PML
+    3 4 0 0+length 0+length 0 0 0 d d; %lower horizontal PML 
+    3 4 0 0+length 0+length 0 0+length-d 0+length-d 0+length 0+length; %upper horizontal PML
+    3 4 d length-d length-d d d d length-d length-d; %between medium
+    3 4 dis+d dis+d+A dis+d+A dis+d d+dis d+dis d+dis+B d+dis+B;]'; %scatterer 
+%are centroids calculation
+%cen matrix containts the centroids of the different areas in the same row
+%as defined in gd matrix.The first row contains the x coord, the second the
+%y coord.%%%Not needed eventually
+% cen=[0.5*(gd(3,1)+gd(4,1)) 0.5*(gd(3,2)+gd(4,2)) 0.5*(gd(3,3)+gd(4,3)) 0.5*(gd(3,4)+gd(4,4)) 0.5*(gd(3,5)+gd(4,5)) 0.5*(gd(3,6)+gd(4,6));
+%     0.5*(gd(7,1)+gd(10,1)) 0.5*(gd(7,2)+gd(10,2)) 0.5*(gd(7,3)+gd(10,3)) 0.5*(gd(7,4)+gd(10,4)) 0.5*(gd(7,5)+gd(10,5)) 0.5*(gd(7,6)+gd(10,6))];
+%     if(cen(1,5)==cen(1,6)) %if scatterer and between medium have the same centroid eliminate scatterer centroid
+%         cen(1,6)=0;
+%     end
+%     if(cen(2,5)==cen(2,6))
+%         cen(2,6)=0;
+%     end
+%-------------Decompesed Geometry-------------%
+%decompesed geometry matrix
+d1 = decsg(gd,'R1+R2+R3+R4+R5+R6',[abs('R1')' abs('R2')' abs('R3')' abs('R4')' abs('R5')' abs('R6')']);  
+%mesh matrices 
+[p,e,t] = initmesh(d1,'hmax',l/20); 
+%hmax property sets no element side greater than l/12 for a satisfactory granularity
+%mesh refinement for a denser mesh around the scatterer and PML
+count=1;
+for ie=1:size(t,2)
+    x_cor = p(1,t(1:3,ie));
+    y_cor = p(2,t(1:3,ie));
+    x_cen = sum(x_cor)/3;
+    y_cen = sum(y_cor)/3;
+    if(sum(x_cor)/3>0.5*(gd(4,1)+gd(3,6))&&sum(x_cor)/3<0.5*(gd(3,2)+gd(4,6))&&sum(y_cor)/3>0.5*(gd(9,3)+gd(7,6))&&sum(y_cor)/3<0.5*(gd(7,4)+gd(9,6)))
+        %area around scatter
+        it(count)=ie;
+        count=count+1;
+%     elseif(x_cen>gd(3,3)&&x_cen<gd(4,3)&&y_cen>gd(7,3)&&y_cen<gd(9,3))
+%         %lower horizontal PML
+%         it(count)=ie;
+%         count=count+1;
+%     elseif(x_cen>gd(3,4)&&x_cen<gd(4,4)&&y_cen>gd(7,4)&&y_cen<gd(9,4))
+%         %upper horizontal PML
+%         it(count)=ie;
+%         count=count+1;
+%     elseif(y_cen>gd(7,1)&&y_cen<gd(9,1)&&x_cen>gd(3,1)&&x_cen<gd(4,1))
+%         %left vertical PML
+%         it(count)=ie;
+%         count=count+1;
+%     elseif(y_cen>gd(7,2)&&y_cen<gd(9,2)&&x_cen>gd(3,2)&&x_cen<gd(4,2))
+%         %right vertical PML
+%         it(count)=ie;
+%         count=count+1;
+    end
+end
+[p e t] = refinemesh(d1,p,e,t,it');
+
+%-------Numbers of nodes,elements,edges-------% 
+Nnodes = size(p,2); %number of nodes
+Nelements = size(t,2); %number of elements
+Nedges = size(e,2); %number of edges
+
+% 
+% %- --------------- check regions from t ------------------------------------------
+% 
+% for ind6= 1: Nelements
+%     if t(4,ind6)==1
+%         xi1=p(1,(t(1,ind6))); xi2=p(1,(t(2,ind6))); xi3=p(1,(t(3,ind6))); 
+%         yi1=p(2,(t(1,ind6))); yi2=p(2,(t(2,ind6))); yi3=p(2,(t(3,ind6))); 
+%         line([xi1 xi2],[yi1 yi2],'color','b');
+%         line([xi2 xi3],[yi2 yi3],'color','b');
+%         line([xi3 xi1],[yi3 yi1],'color','b');
+%     end
+%     if t(4,ind6)==2
+%         xi1=p(1,(t(1,ind6))); xi2=p(1,(t(2,ind6))); xi3=p(1,(t(3,ind6))); 
+%         yi1=p(2,(t(1,ind6))); yi2=p(2,(t(2,ind6))); yi3=p(2,(t(3,ind6))); 
+%         line([xi1 xi2],[yi1 yi2],'color','r');
+%         line([xi2 xi3],[yi2 yi3],'color','r');
+%         line([xi3 xi1],[yi3 yi1],'color','r');
+%     end
+%      if t(4,ind6)==3
+%         xi1=p(1,(t(1,ind6))); xi2=p(1,(t(2,ind6))); xi3=p(1,(t(3,ind6))); 
+%         yi1=p(2,(t(1,ind6))); yi2=p(2,(t(2,ind6))); yi3=p(2,(t(3,ind6))); 
+%         line([xi1 xi2],[yi1 yi2],'color','g');
+%         line([xi2 xi3],[yi2 yi3],'color','g');
+%         line([xi3 xi1],[yi3 yi1],'color','g');
+%      end
+%      if t(4,ind6)==4
+%         xi1=p(1,(t(1,ind6))); xi2=p(1,(t(2,ind6))); xi3=p(1,(t(3,ind6))); 
+%         yi1=p(2,(t(1,ind6))); yi2=p(2,(t(2,ind6))); yi3=p(2,(t(3,ind6))); 
+%         line([xi1 xi2],[yi1 yi2],'color','m');
+%         line([xi2 xi3],[yi2 yi3],'color','m');
+%         line([xi3 xi1],[yi3 yi1],'color','m');
+%      end
+% end
+
+
+%------Region of each triangle definemet------%
+%characteristic number for each area 1=between medium 2=horizontal PML
+%3=vertical PML 4=PML intersection 5=scatterer
+regions = ones(1,Nelements);
+for ie=1:Nelements
+    x_cen = sum(p(1,t(1:3,ie)))/3;
+    y_cen = sum(p(2,t(1:3,ie)))/3;
+    if(x_cen>gd(3,6)&&x_cen<gd(4,6)&&y_cen>gd(7,6)&&y_cen<gd(9,6))
+        regions(ie) = 5; %scatterer area
+    elseif(x_cen>gd(4,1)&&x_cen<gd(3,6)&&y_cen>gd(9,3)&&y_cen<gd(7,4))
+        regions(ie) = 1; %between medium
+    elseif(x_cen>gd(3,6)&&x_cen<gd(4,6)&&y_cen>gd(9,3)&&y_cen<gd(7,6))
+        regions(ie) = 1; %between medium
+    elseif(x_cen>gd(3,6)&&x_cen<gd(4,6)&&y_cen>gd(9,6)&&y_cen<gd(7,4))
+        regions(ie) = 1; %between medium
+    elseif(x_cen>gd(4,6)&&x_cen<gd(3,2)&&y_cen>gd(9,3)&&y_cen<gd(7,4))
+        regions(ie) = 1; %between medium
+    elseif(x_cen>gd(4,1)&&x_cen<gd(3,2)&&y_cen>gd(7,3)&&y_cen<gd(9,3))
+        regions(ie) = 2; %lower horizontal PML
+    elseif(x_cen>gd(4,1)&&x_cen<gd(3,2)&&y_cen>gd(7,4)&&y_cen<gd(9,4))
+        regions(ie) = 2; %upper horizontal PML
+    elseif(y_cen>gd(9,3)&&y_cen<gd(7,4)&&x_cen>gd(3,1)&&x_cen<gd(4,1))
+        regions(ie) = 3; %left vertical PML
+    elseif(y_cen>gd(9,3)&&y_cen<gd(7,4)&&x_cen>gd(3,2)&&x_cen<gd(4,2))
+        regions(ie) = 3; %right vertical PML
+    elseif(x_cen>gd(3,1)&&x_cen<gd(4,1)&&y_cen>gd(7,3)&&y_cen<gd(9,3))
+        regions(ie) = 4; %downleft PML intersection
+    elseif(x_cen>gd(3,2)&&x_cen<gd(4,2)&&y_cen>gd(7,3)&&y_cen<gd(9,3))
+        regions(ie) = 4; %downright PML intersection
+    elseif(x_cen>gd(3,1)&&x_cen<gd(4,1)&&y_cen>gd(7,4)&&y_cen<gd(9,4))
+        regions(ie) = 4; %upperleft PML intersection
+    elseif(x_cen>gd(3,2)&&x_cen<gd(4,2)&&y_cen>gd(7,4)&&y_cen<gd(9,4))
+        regions(ie) = 4; %upperight PML intersection
+    end
+end
+
+%---------------Test plot 1-------------------%
+pdeplot(p,e,t);axis tight;axis equal;
+for ie=1:Nelements%test if regions ides are correct
+    x_cen = sum(p(1,t(1:3,ie)))/3;
+    y_cen = sum(p(2,t(1:3,ie)))/3;
+    if(regions(ie)==1)
+        text(x_cen,y_cen,'1')
+    elseif(regions(ie)==2)
+        text(x_cen,y_cen,'2')
+    elseif(regions(ie)==3)
+        text(x_cen,y_cen,'3')
+    elseif(regions(ie)==4)
+        text(x_cen,y_cen,'4')
+    elseif(regions(ie)==5)
+        text(x_cen,y_cen,'5')
+    end
+end
+
+%---------DIRICHLET NODES LOCALISATION--------%
+node_id = ones(Nnodes,1); %node identity matrix if unknown id=1 if Dirichlet=0
+Ezs0 = zeros(Nnodes,1); %electric field of nodes, unknown if inner surface, 0 if outer
+% 
+% for id=1:Nedges
+%     left = e(6,id); %left area of edge
+%     right = e(7,id); %right area of edge
+%     
+%     if(left==0||right==0)
+%         n1 = e(1,id);
+%         n2 = e(2,id);
+%         node_id(n1) = 0;
+%         node_id(n2) = 0;
+%     end
+% end
+figure
+%---------------Test plot 2-------------------%
+pdeplot(p,e,t,'xydata',real(Ezs0),'zdata',real(Ezs0),'mesh','on')
+
+%-------------UNKNOWN NUMERATION--------------%
+index = zeros(Nnodes,1);%numeration of nodes as unknowns
+
+Nunknowns = 0; %number of unknowns
+
+for in=1:Nnodes
+    if(node_id(in)==1) %check if node is an unknown
+        Nunknowns = Nunknowns+1;%number of unknowns definement
+        index(in) = Nunknowns;
+    else
+        index(in) = 0;
+    end
+end
+%---------------Test plot 3-------------------%
+figure
+pdeplot(p,e,t,'xydata',node_id,'zdata',node_id,'mesh','on')
+figure
+pdeplot(p,e,t,'xydata',index,'zdata',index,'mesh','on')
+
+%-------STIFFNESS MATRIX FORMULATION---------%
+A = spalloc(Nunknowns,Nunknowns,8*Nunknowns);
+B = zeros(Nunknowns,1);
+
+for ie=1:Nelements
+    n(1:3) = t(1:3,ie); %nodes 1-3 of element ie
+    region = t(4,ie); %region of element ie
+    x(1:3) = p(1,n(1:3)); %x-cord of nodes 1-3 of element ie
+    y(1:3) = p(2,n(1:3)); %y-cord of nodes 1-3 of element ie
+    
+    %---area of element ie computation---%
+    D = det([ones(3,1) x' y']);
+    Ae=abs(D)/2;
+    %-------cartesian-simplex------------%
+    a = [(x(2)*y(3)-x(3)*y(2))/D, (x(3)*y(1)-x(1)*y(3))/D, (x(1)*y(2)-x(2)*y(1))/D];
+    b = [(y(2)-y(3))/D, (y(3)-y(1))/D, (y(1)-y(2))/D];
+    c = [(x(3)-x(2))/D, (x(1)-x(3))/D, (x(2)-x(1))/D];
+    %--dielectric properties definement--%
+    if(regions(ie)==1)
+        er_z = er0(3,3);
+        mr_x = mr0_inv(1,1);
+        mr_y = mr0_inv(2,2);
+    elseif(regions(ie)==2)
+        er_z = ery(3,3);
+        mr_x = mry_inv(1,1);
+        mr_y = mry_inv(2,2);
+    elseif(regions(ie)==3)
+        er_z = erx(3,3);
+        mr_x = mrx_inv(1,1);
+        mr_y = mrx_inv(2,2);
+    elseif(regions(ie)==4)
+        er_z = er_inter(3,3);
+        mr_x = mr_inter_inv(1,1);
+        mr_y = mr_inter_inv(2,2);
+    elseif(regions(ie)==5)
+        er_z = ers(3,3);
+        mr_x = mrs_inv(1,1);
+        mr_y = mrs_inv(2,2);
+    end
+    
+    S = zeros(3,3);
+    T = zeros(3,3);
+    S_b = zeros(3,3);
+    T_b = zeros(3,3);
+        
+    for k=1:3
+        for l=1:3%Compute S T S' T' parameters for stiffness matrix calculation
+            S(k,l) = (mr_x*c(k)*c(l)+mr_y*b(k)*b(l))*Ae;
+            S_b(k,l) = ((mr_x-1)*c(k)*c(l)+(mr_y-1)*b(k)*b(l))*Ae;
+            if(k==l)
+                T(k,l) = er_z*Ae/6; 
+                T_b(k,l) = (er_z-1)*Ae/6;
+            else
+                T(k,l) = er_z*Ae/12;
+                T_b(k,l) = (er_z-1)*Ae/12;
+            end
+            if(node_id(n(k))==1)%check if p node is an unknown
+                if(node_id(n(l))==1)%check if q node is an unknown
+                    %if both p,q are unknown update stiffens matrix
+                    A(index(n(k)),index(n(l))) = A(index(n(k)),index(n(l)))+S(k,l)-k0^2*T(k,l);
+                    if(regions(ie)~=2&&regions(ie)~=3&&regions(ie)~=4)%check if located in a PML are if so there is stimulation of incriment wave
+                        B(index(n(k)),1) = B(index(n(k)),1)+(-S_b(k,l)+k0^2*T_b(k,l))*E0*exp(-1i*k0*p(1,n(k)));%p(1,n(l)) represent xcor of node that is on check
+                    end
+                else
+                    %if node q is a known update result matrix
+                    if(regions(ie)~=2&&regions(ie)~=3&&regions(ie)~=4)%check if located in a PML are if so there is stimulation of incriment wave
+                        B(index(n(k)),1) = B(index(n(k)),1)-(S(k,l)-k0^2*T(k,l))*Ezs0(n(l))+(-S_b(k,l)+k^2*T_b(k,l))*E0*exp(-1i*k0*p(1,n(l)));
+                    else
+                        B(index(n(k)),1) = B(index(n(k)),1)-(S(k,l)-k0^2*T(k,l))*Ezs0(n(l));
+                    end
+                end
+            end
+        end
+    end
+end
+%-------------Direct Solving------------------%
+Ezs=A\B;%scattered field computation
+for in=1:Nnodes
+    if(index(in)~=0)
+        Ezs0(in) = Ezs(index(in));
+   end
+end
+%---------Total field computation-------------%
+Ez=zeros(Nnodes,1);%total field matrix
+
+for in=1:Nnodes
+    if(p(1,in)>gd(4,1)&&p(1,in)<gd(3,2)&&p(2,in)>gd(9,3)&&p(2,in)<gd(7,4))
+        Ez(in) = Ezs0(in)+E0*exp(-1i*k0*p(1,in));
+    else
+        Ez(in) = Ezs0(in);
+    end
+end
+%---------------Result plot-------------------%
+figure %scattered field only
+
+pdeplot(p,e,t,'xydata',abs(Ezs0),'mesh','on','contour','on','title','Scattered Field')
+axis tight;axis equal;
+xlabel('x');ylabel('y','Rotation',0);
+figure %total field
+pdeplot(p,e,t,'xydata',abs(Ez),'mesh','on','contour','on','title','Total Field')
+axis tight;axis equal;
+xlabel('x');ylabel('y','Rotation',0);
+toc
